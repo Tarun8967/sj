@@ -21,6 +21,7 @@
             --dark: #2c3e50;
             --success: #27ae60;
             --warning: #f1c40f;
+            --leave: #f39c12;
         }
 
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f7f6; color: #333; }
@@ -34,7 +35,7 @@
         .auth-container h2 { text-align: center; color: var(--primary); margin-bottom: 20px; }
         .form-group { margin-bottom: 15px; }
         .form-group label { display: block; margin-bottom: 5px; font-weight: 600; }
-        .form-group input, .form-group select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
         .btn { width: 100%; padding: 10px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold; transition: 0.3s; }
         .btn-primary { background-color: var(--secondary); color: white; }
         .btn-primary:hover { background-color: #2980b9; }
@@ -58,6 +59,7 @@
         .status-badge { display: inline-block; padding: 5px 10px; border-radius: 15px; font-size: 0.8em; font-weight: bold; }
         .status-present { background: #d5f5e3; color: var(--success); }
         .status-absent { background: #fadbd8; color: var(--accent); }
+        .status-leave { background: #fdebd0; color: var(--leave); }
         .status-out { background: #fcf3cf; color: var(--warning); }
 
         /* Main Content */
@@ -76,13 +78,27 @@
         th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
         th { background-color: #f8f9fa; color: var(--dark); }
         tr:hover { background-color: #f1f1f1; }
-        .edit-icon { cursor: pointer; color: var(--secondary); margin-left: 10px; }
+        .action-icon { cursor: pointer; font-size: 1.2em; margin-left: 8px; }
         .admin-edited-tag { font-size: 0.7em; background: #e67e22; color: white; padding: 2px 5px; border-radius: 3px; margin-left: 5px; }
 
         /* Modal */
         .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; }
-        .modal-content { background: white; padding: 25px; border-radius: 8px; width: 400px; }
+        .modal-content { background: white; padding: 25px; border-radius: 8px; width: 500px; max-width: 95%; max-height: 90vh; overflow-y: auto; }
         
+        /* Calendar Styles */
+        .calendar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+        .calendar-day-header { font-weight: bold; text-align: center; padding: 5px; background: #f0f0f0; }
+        .calendar-day { 
+            height: 60px; border: 1px solid #eee; display: flex; flex-direction: column; 
+            justify-content: center; align-items: center; cursor: pointer; position: relative;
+        }
+        .calendar-day span { font-size: 12px; }
+        .day-present { background-color: #d5f5e3; border-color: #27ae60; }
+        .day-absent { background-color: #fadbd8; border-color: #c0392b; }
+        .day-leave { background-color: #fdebd0; border-color: #f39c12; }
+        .day-future { background-color: #f9f9f9; cursor: default; }
+
         @media (max-width: 768px) {
             .dashboard-grid { grid-template-columns: 1fr; }
             .toolbar { flex-direction: column; align-items: stretch; }
@@ -169,7 +185,8 @@
             <div class="main-card">
                 <div class="tabs">
                     <div class="tab active" onclick="switchTab('list')">Attendance List</div>
-                    <div class="tab" onclick="switchTab('analytics')">Analytics (Graph)</div>
+                    <div class="tab" onclick="switchTab('statement')">Statement</div>
+                    <div class="tab" onclick="switchTab('analytics')">Analytics</div>
                 </div>
 
                 <!-- Tab 1: List -->
@@ -178,14 +195,6 @@
                         <div class="toolbar-group">
                             <input type="date" id="filter-date" onchange="loadAttendanceData()">
                             <button onclick="loadAttendanceData()" class="nav-btn" style="background:var(--secondary); border:none;">Refresh</button>
-                        </div>
-                        <div class="toolbar-group">
-                            <button onclick="exportToExcel()" class="btn btn-export">
-                                <span>📊</span> Export Excel
-                            </button>
-                            <button onclick="exportToPDF()" class="btn btn-export pdf">
-                                <span>📄</span> Export PDF
-                            </button>
                         </div>
                     </div>
                     
@@ -197,8 +206,9 @@
                                     <th>Designation</th>
                                     <th>In Time</th>
                                     <th>Out Time</th>
-                                    <th>Work Duration</th>
+                                    <th>Duration</th>
                                     <th>Status</th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -208,11 +218,48 @@
                     </div>
                 </div>
 
-                <!-- Tab 2: Graphs -->
+                <!-- Tab 2: Statement -->
+                <div id="tab-statement" class="hidden">
+                    <div class="toolbar">
+                        <div class="toolbar-group">
+                            <label>From:</label>
+                            <input type="date" id="stmt-start">
+                            <label>To:</label>
+                            <input type="date" id="stmt-end">
+                            <button onclick="generateStatement()" class="btn-primary" style="padding: 8px 15px; border-radius: 4px;">Generate</button>
+                        </div>
+                        <div class="toolbar-group">
+                            <button onclick="exportStatementExcel()" class="btn btn-export">
+                                <span>📊</span> Excel
+                            </button>
+                            <button onclick="exportStatementPDF()" class="btn btn-export pdf">
+                                <span>📄</span> PDF
+                            </button>
+                        </div>
+                    </div>
+                    <div style="overflow-x:auto;">
+                        <table id="statement-table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Designation</th>
+                                    <th>Total Days</th>
+                                    <th>Present</th>
+                                    <th>Absent</th>
+                                    <th>Leave</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td colspan="6" style="text-align:center;">Select dates and click Generate</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Tab 3: Graphs -->
                 <div id="tab-analytics" class="hidden">
                     <div style="text-align: center; margin-bottom: 15px;">
                         <button class="nav-btn" style="background:#ddd; color:#333; border:none;" onclick="renderChart('day')">Daily Hours</button>
-                        <!-- For simplicity in this version, we focus on total hours worked -->
                     </div>
                     <canvas id="workChart"></canvas>
                 </div>
@@ -220,9 +267,47 @@
         </div>
     </div>
 
+    <!-- CALENDAR MODAL -->
+    <div id="calendar-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="calendar-header">
+                <h3 id="cal-user-name" style="margin:0;">User Calendar</h3>
+                <div>
+                    <button class="nav-btn" style="background:#ddd; color:black;" onclick="changeCalMonth(-1)">&lt;</button>
+                    <span id="cal-month-year" style="font-weight:bold; margin:0 10px;">Month Year</span>
+                    <button class="nav-btn" style="background:#ddd; color:black;" onclick="changeCalMonth(1)">&gt;</button>
+                </div>
+                <button onclick="document.getElementById('calendar-modal').classList.add('hidden')" style="background:none; border:none; font-size:1.2em; cursor:pointer;">&times;</button>
+            </div>
+            
+            <div id="calendar-grid" class="calendar-grid"></div>
+            <div style="margin-top:15px; font-size:0.9em; color:#666;">
+                <span style="display:inline-block; width:10px; height:10px; background:#d5f5e3;"></span> Present
+                <span style="display:inline-block; width:10px; height:10px; background:#fadbd8; margin-left:10px;"></span> Absent
+                <span style="display:inline-block; width:10px; height:10px; background:#fdebd0; margin-left:10px;"></span> Leave
+            </div>
+            <p id="admin-cal-hint" class="hidden" style="color: var(--secondary); font-size: 0.9em; margin-top: 5px;">* Click on an Absent day to convert to Leave</p>
+        </div>
+    </div>
+
+    <!-- LEAVE REASON MODAL -->
+    <div id="leave-modal" class="modal hidden">
+        <div class="modal-content" style="width: 350px;">
+            <h3>Mark as Leave</h3>
+            <p id="leave-date-display" style="color: #666; margin-bottom: 10px;"></p>
+            <input type="hidden" id="leave-target-date">
+            <div class="form-group">
+                <label>Reason for Leave</label>
+                <textarea id="leave-reason" rows="3" placeholder="e.g. Sick Leave, Family Emergency"></textarea>
+            </div>
+            <button onclick="confirmLeaveConversion()" class="btn btn-primary">Confirm & Save</button>
+            <button onclick="document.getElementById('leave-modal').classList.add('hidden')" class="btn btn-secondary">Cancel</button>
+        </div>
+    </div>
+
     <!-- ADMIN EDIT MODAL -->
     <div id="edit-modal" class="modal hidden">
-        <div class="modal-content">
+        <div class="modal-content" style="width: 400px;">
             <h3>Edit Attendance (Admin)</h3>
             <input type="hidden" id="edit-doc-id">
             <div class="form-group">
@@ -238,6 +323,7 @@
                 <select id="edit-status">
                     <option value="Present">Present</option>
                     <option value="Absent">Absent</option>
+                    <option value="Leave">Leave</option>
                     <option value="On Duty">On Duty</option>
                 </select>
             </div>
@@ -253,7 +339,7 @@
         import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, getDoc, getDocs, updateDoc, query, where, Timestamp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
 
-        // --- FIREBASE CONFIGURATION (SJ TRADERS) ---
+        // --- FIREBASE CONFIGURATION ---
         const firebaseConfig = {
             apiKey: "AIzaSyBbGU4WQbnPNzV4VzqudVPKZuLpB4kYQts",
             authDomain: "sj-treders.firebaseapp.com",
@@ -263,63 +349,26 @@
             appId: "1:2993199655:web:c699c3c6721e0c6a3f0c02"
         };
 
-        // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
 
         // Global State
         let currentUser = null;
-        let userData = null; // Stores role, name, etc.
+        let userData = null;
         let chartInstance = null;
+        let currentCalDate = new Date();
+        let currentCalUser = null;
 
-        // --- EXPORT FUNCTIONS ---
-        
-        window.exportToExcel = () => {
-            const table = document.getElementById("attendance-table");
-            const wb = XLSX.utils.table_to_book(table, {sheet: "Sheet1"});
-            const dateStr = document.getElementById('filter-date').value || "All";
-            XLSX.writeFile(wb, `SJ_Traders_Attendance_${dateStr}.xlsx`);
+        // --- HELPER: LOCAL DATE FORMATTER ---
+        const formatDateLocal = (date) => {
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const d = String(date.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
         };
 
-        window.exportToPDF = () => {
-            const { jsPDF } = window.jspdf;
-            const doc = new jsPDF();
-            
-            const dateStr = document.getElementById('filter-date').value || new Date().toISOString().split('T')[0];
-            
-            doc.text(`SJ TRADERS - Attendance Report`, 14, 15);
-            doc.setFontSize(10);
-            doc.text(`Date: ${dateStr}`, 14, 22);
-
-            // Clone table to remove edit buttons before printing if needed, 
-            // but autoTable usually handles text only.
-            
-            doc.autoTable({ 
-                html: '#attendance-table',
-                startY: 30,
-                theme: 'grid',
-                columns: [
-                    {header: 'Name', dataKey: 0},
-                    {header: 'Designation', dataKey: 1},
-                    {header: 'In Time', dataKey: 2},
-                    {header: 'Out Time', dataKey: 3},
-                    {header: 'Duration', dataKey: 4},
-                    {header: 'Status', dataKey: 5}
-                ],
-                didParseCell: function(data) {
-                    // Remove "✏️" from PDF output
-                    if(data.section === 'body') {
-                        data.cell.text = data.cell.text.map(t => t.replace('✏️', '').trim());
-                    }
-                }
-            });
-
-            doc.save(`SJ_Traders_Attendance_${dateStr}.pdf`);
-        };
-
-
-        // --- AUTHENTICATION FUNCTIONS ---
+        // --- AUTH & SETUP ---
         
         window.showRegister = () => {
             document.getElementById('login-screen').classList.add('hidden');
@@ -331,7 +380,6 @@
             document.getElementById('login-screen').classList.remove('hidden');
         };
 
-        // Register
         document.getElementById('register-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const email = document.getElementById('reg-email').value;
@@ -345,13 +393,12 @@
 
             try {
                 const cred = await createUserWithEmailAndPassword(auth, email, password);
-                // Save user profile to Firestore
                 await setDoc(doc(db, "users", cred.user.uid), {
                     name: name,
                     designation: desig,
                     mobile: mobile,
                     email: email,
-                    role: 'staff' // Default role
+                    role: 'staff'
                 });
                 alert("Registered Successfully! Logging in...");
             } catch (error) {
@@ -359,41 +406,38 @@
             }
         });
 
-        // Login
         document.getElementById('login-form').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const email = document.getElementById('login-email').value;
-            const password = document.getElementById('login-password').value;
-
             try {
-                await signInWithEmailAndPassword(auth, email, password);
+                await signInWithEmailAndPassword(auth, document.getElementById('login-email').value, document.getElementById('login-password').value);
             } catch (error) {
                 alert("Login Failed: " + error.message);
             }
         });
 
-        // Logout
         window.logout = () => signOut(auth);
 
-        // Auth State Listener
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 currentUser = user;
-                // Fetch extra user details (Role)
                 const userDoc = await getDoc(doc(db, "users", user.uid));
                 if (userDoc.exists()) {
                     userData = userDoc.data();
                     document.getElementById('user-greeting').innerText = `Welcome, ${userData.name} (${userData.role === 'admin' ? 'Admin' : 'Staff'})`;
-                    
-                    // Show Dashboard
                     document.getElementById('login-screen').classList.add('hidden');
                     document.getElementById('register-screen').classList.add('hidden');
                     document.getElementById('dashboard').classList.remove('hidden');
                     
-                    // Init Dashboard
                     startClock();
                     checkTodayStatus();
                     loadAttendanceData();
+
+                    // Set default dates for Statement
+                    const today = formatDateLocal(new Date());
+                    document.getElementById('stmt-end').value = today;
+                    const firstDay = new Date();
+                    firstDay.setDate(1);
+                    document.getElementById('stmt-start').value = formatDateLocal(firstDay);
                 }
             } else {
                 currentUser = null;
@@ -403,7 +447,7 @@
             }
         });
 
-        // --- DASHBOARD LOGIC ---
+        // --- DASHBOARD CORE ---
 
         function startClock() {
             setInterval(() => {
@@ -413,42 +457,36 @@
             }, 1000);
         }
 
-        // Check if User Checked In Today
         async function checkTodayStatus() {
-            const todayStr = new Date().toISOString().split('T')[0];
+            const todayStr = formatDateLocal(new Date());
             const docId = `${currentUser.uid}_${todayStr}`;
             const docRef = doc(db, "attendance", docId);
             const docSnap = await getDoc(docRef);
-
             const btnIn = document.getElementById('btn-in');
             const btnOut = document.getElementById('btn-out');
             const statusMsg = document.getElementById('status-message');
 
             if (docSnap.exists()) {
                 const data = docSnap.data();
-                if (data.checkOut) {
-                    // Already Checked Out
+                if (data.checkOut || data.status === 'Leave') {
                     btnIn.classList.add('hidden');
                     btnOut.classList.add('hidden');
-                    statusMsg.innerHTML = `<span class="status-badge status-present">Day Completed: ${data.duration}</span>`;
+                    statusMsg.innerHTML = `<span class="status-badge status-present">Day Completed: ${data.duration || data.status}</span>`;
                 } else {
-                    // Checked In, Needs Check Out
                     btnIn.classList.add('hidden');
                     btnOut.classList.remove('hidden');
                     statusMsg.innerHTML = `<span class="status-badge status-out">Currently Working</span>`;
                 }
             } else {
-                // Not Checked In Yet
                 btnIn.classList.remove('hidden');
                 btnOut.classList.add('hidden');
                 statusMsg.innerText = "Please Check In";
             }
         }
 
-        // Mark Attendance (In/Out)
         window.markAttendance = async (type) => {
             const now = new Date();
-            const todayStr = now.toISOString().split('T')[0];
+            const todayStr = formatDateLocal(now);
             const timeStr = now.toLocaleTimeString();
             const docId = `${currentUser.uid}_${todayStr}`;
             const docRef = doc(db, "attendance", docId);
@@ -483,20 +521,19 @@
             loadAttendanceData();
         };
 
-        // Load All Attendance (View Logic)
+        // --- MAIN LIST VIEW ---
+        
         window.loadAttendanceData = async () => {
             const tableBody = document.querySelector('#attendance-table tbody');
-            tableBody.innerHTML = '<tr><td colspan="6">Loading...</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="7">Loading...</td></tr>';
             
-            const dateFilter = document.getElementById('filter-date').value || new Date().toISOString().split('T')[0];
+            const dateFilter = document.getElementById('filter-date').value || formatDateLocal(new Date());
             document.getElementById('filter-date').value = dateFilter;
             
-            // Get all users to check who is absent
             const usersSnapshot = await getDocs(collection(db, "users"));
             const allUsers = [];
             usersSnapshot.forEach(doc => allUsers.push({id: doc.id, ...doc.data()}));
 
-            // Get attendance for selected date
             const q = query(collection(db, "attendance"), where("date", "==", dateFilter));
             const attSnapshot = await getDocs(q);
             const attendanceMap = {};
@@ -510,46 +547,275 @@
                 const record = attendanceMap[user.id];
                 let inTime = '-', outTime = '-', duration = '-', status = '<span class="status-badge status-absent">Absent</span>';
                 let editBtn = '';
-                let editedTag = '';
                 let statusText = 'Absent';
 
                 if (record) {
-                    inTime = record.checkIn;
+                    inTime = record.checkIn || '-';
                     outTime = record.checkOut || 'Working...';
-                    duration = record.duration;
+                    duration = record.duration || '-';
                     statusText = record.status;
                     let badgeClass = 'status-present';
                     if(statusText === 'Absent') badgeClass = 'status-absent';
                     if(statusText === 'On Duty') badgeClass = 'status-out';
-                    
-                    status = `<span class="status-badge ${badgeClass}">${statusText}</span>`;
-                    
-                    if (record.adminEdited) {
-                        editedTag = `<span class="admin-edited-tag">Admin Edited</span>`;
+                    if(statusText === 'Leave') {
+                        badgeClass = 'status-leave';
+                        inTime = 'On Leave';
+                        outTime = 'On Leave';
                     }
+                    
+                    status = `<span class="status-badge ${badgeClass}" title="${record.remarks || ''}">${statusText}</span>`;
                 }
 
-                // If Admin, show Edit Button
-                if (userData && userData.role === 'admin' && record) {
-                    editBtn = `<span class="edit-icon" onclick="openAdminEdit('${record.id}', '${record.checkIn}', '${record.checkOut}', '${statusText}')">✏️</span>`;
+                if (userData && userData.role === 'admin') {
+                    if(record) {
+                        editBtn = `<span title="Edit" class="action-icon" style="color:var(--secondary);" onclick="openAdminEdit('${record.id}', '${record.checkIn}', '${record.checkOut}', '${statusText}')">✏️</span>`;
+                    }
                 }
+                
+                // Calendar Icon
+                const calBtn = `<span title="View Calendar" class="action-icon" style="color:#8e44ad;" onclick="openCalendar('${user.id}', '${user.name}')">📅</span>`;
 
                 html += `
                     <tr>
-                        <td>${user.name} ${editedTag}</td>
+                        <td>${user.name}</td>
                         <td>${user.designation}</td>
                         <td>${inTime}</td>
                         <td>${outTime}</td>
                         <td>${duration}</td>
-                        <td>${status} ${editBtn}</td>
+                        <td>${status}</td>
+                        <td>${calBtn} ${editBtn}</td>
                     </tr>
                 `;
             });
-
             tableBody.innerHTML = html;
         };
 
-        // --- ADMIN FEATURES ---
+        // --- CALENDAR FEATURE ---
+
+        window.openCalendar = (uid, name) => {
+            currentCalUser = { uid, name };
+            currentCalDate = new Date(); // Reset to today
+            document.getElementById('cal-user-name').innerText = `${name}'s Calendar`;
+            document.getElementById('calendar-modal').classList.remove('hidden');
+            
+            if(userData.role === 'admin') {
+                document.getElementById('admin-cal-hint').classList.remove('hidden');
+            } else {
+                document.getElementById('admin-cal-hint').classList.add('hidden');
+            }
+
+            renderCalendar();
+        };
+
+        window.changeCalMonth = (dir) => {
+            currentCalDate.setMonth(currentCalDate.getMonth() + dir);
+            renderCalendar();
+        };
+
+        async function renderCalendar() {
+            const grid = document.getElementById('calendar-grid');
+            grid.innerHTML = 'Loading...';
+            
+            const year = currentCalDate.getFullYear();
+            const month = currentCalDate.getMonth();
+            const monthName = currentCalDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+            document.getElementById('cal-month-year').innerText = monthName;
+
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const startStr = formatDateLocal(new Date(year, month, 1));
+            const endStr = formatDateLocal(new Date(year, month, daysInMonth));
+
+            // Query by UID only
+            const q = query(collection(db, "attendance"), where("uid", "==", currentCalUser.uid));
+            const snapshot = await getDocs(q);
+            const records = {};
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                if (data.date >= startStr && data.date <= endStr) {
+                    records[data.date] = data;
+                }
+            });
+
+            let html = '';
+            ['S','M','T','W','T','F','S'].forEach(d => html += `<div class="calendar-day-header">${d}</div>`);
+            
+            const firstDay = new Date(year, month, 1).getDay();
+            for(let i=0; i<firstDay; i++) html += `<div></div>`;
+
+            const today = new Date();
+            const todayStr = formatDateLocal(today);
+
+            for(let d=1; d<=daysInMonth; d++) {
+                const dateObj = new Date(year, month, d);
+                const dateStr = formatDateLocal(dateObj);
+                const record = records[dateStr];
+                
+                let className = 'calendar-day ';
+                let statusLabel = '';
+                let isAbsent = false;
+
+                if (record) {
+                    if(record.status === 'Present') className += 'day-present';
+                    else if(record.status === 'Leave') { className += 'day-leave'; statusLabel='Leave'; }
+                    else if(record.status === 'Absent') { className += 'day-absent'; isAbsent = true; }
+                    else if(record.status === 'On Duty') { className += 'day-leave'; statusLabel='Duty'; }
+                } else {
+                    if (dateStr < todayStr) {
+                        className += 'day-absent'; // Past date, no record = Absent
+                        isAbsent = true;
+                    } else if (dateStr === todayStr) {
+                         // Today with no record yet is technically absent/working, allow edit
+                         className += 'day-absent'; 
+                         isAbsent = true;
+                    } else {
+                        className += 'day-future';
+                    }
+                }
+
+                let onClick = '';
+                // Only allow Admin to edit 'Absent' days.
+                if(userData.role === 'admin' && isAbsent) {
+                    onClick = `onclick="initiateLeaveConversion('${dateStr}')"`;
+                }
+
+                // Tooltip construction
+                let tooltip = statusLabel || (isAbsent ? 'Absent' : 'Present');
+                if(record && record.remarks) {
+                    tooltip += `\nReason: ${record.remarks}`;
+                }
+
+                html += `
+                    <div class="${className}" ${onClick} title="${tooltip}">
+                        <strong>${d}</strong>
+                        <span>${statusLabel}</span>
+                    </div>
+                `;
+            }
+            grid.innerHTML = html;
+        }
+
+        // --- NEW LEAVE CONVERSION LOGIC ---
+        window.initiateLeaveConversion = (dateStr) => {
+            document.getElementById('leave-target-date').value = dateStr;
+            document.getElementById('leave-date-display').innerText = `Date: ${dateStr}`;
+            document.getElementById('leave-reason').value = ''; 
+            document.getElementById('leave-modal').classList.remove('hidden');
+        };
+
+        window.confirmLeaveConversion = async () => {
+            const dateStr = document.getElementById('leave-target-date').value;
+            const reason = document.getElementById('leave-reason').value;
+
+            if(!reason) return alert("Please enter a reason.");
+
+            const docId = `${currentCalUser.uid}_${dateStr}`;
+            
+            try {
+                await setDoc(doc(db, "attendance", docId), {
+                    uid: currentCalUser.uid,
+                    name: currentCalUser.name,
+                    date: dateStr,
+                    status: "Leave",
+                    checkIn: "On Leave",
+                    checkOut: "On Leave",
+                    duration: "Leave",
+                    remarks: reason,
+                    adminEdited: true
+                }, { merge: true });
+
+                document.getElementById('leave-modal').classList.add('hidden');
+                renderCalendar();
+                loadAttendanceData(); // Refresh main list too
+                alert("Updated to Leave successfully.");
+            } catch (error) {
+                console.error("Firebase Error:", error);
+                if (error.code === 'permission-denied') {
+                    alert("Permission Denied: You need to update your Firestore Rules. Check the console or ask your developer.");
+                } else {
+                    alert("Error updating leave: " + error.message);
+                }
+            }
+        };
+
+        // --- STATEMENT & REPORTING ---
+
+        window.generateStatement = async () => {
+            const start = document.getElementById('stmt-start').value;
+            const end = document.getElementById('stmt-end').value;
+            const tbody = document.querySelector('#statement-table tbody');
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">Calculating...</td></tr>';
+
+            if(!start || !end) return alert("Select start and end dates");
+
+            const usersSnap = await getDocs(collection(db, "users"));
+            const users = [];
+            usersSnap.forEach(u => users.push({uid: u.id, ...u.data()}));
+
+            const q = query(collection(db, "attendance"), where("date", ">=", start), where("date", "<=", end));
+            const attSnap = await getDocs(q);
+            
+            const d1 = new Date(start);
+            const d2 = new Date(end);
+            const totalDays = Math.floor((d2 - d1) / (1000 * 60 * 60 * 24)) + 1;
+
+            const reportData = {};
+            users.forEach(u => {
+                reportData[u.uid] = { 
+                    name: u.name, 
+                    desig: u.designation, 
+                    present: 0, 
+                    leave: 0,
+                };
+            });
+
+            attSnap.forEach(doc => {
+                const data = doc.data();
+                if(reportData[data.uid]) {
+                    if(data.status === 'Present' || data.status === 'On Duty') reportData[data.uid].present++;
+                    else if(data.status === 'Leave') reportData[data.uid].leave++;
+                }
+            });
+
+            let html = '';
+            Object.values(reportData).forEach(u => {
+                const absent = totalDays - (u.present + u.leave);
+                html += `
+                    <tr>
+                        <td>${u.name}</td>
+                        <td>${u.desig}</td>
+                        <td>${totalDays}</td>
+                        <td>${u.present}</td>
+                        <td style="color:red; font-weight:bold;">${Math.max(0, absent)}</td>
+                        <td>${u.leave}</td>
+                    </tr>
+                `;
+            });
+            tbody.innerHTML = html;
+        };
+
+        window.exportStatementExcel = () => {
+            const table = document.getElementById("statement-table");
+            const start = document.getElementById('stmt-start').value;
+            const end = document.getElementById('stmt-end').value;
+            const wb = XLSX.utils.table_to_book(table, {sheet: "Sheet1"});
+            XLSX.writeFile(wb, `SJ_Traders_Statement_${start}_to_${end}.xlsx`);
+        };
+
+        window.exportStatementPDF = () => {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            const start = document.getElementById('stmt-start').value;
+            const end = document.getElementById('stmt-end').value;
+
+            doc.text(`SJ TRADERS - Attendance Statement`, 14, 15);
+            doc.setFontSize(10);
+            doc.text(`Period: ${start} to ${end}`, 14, 22);
+
+            doc.autoTable({ html: '#statement-table', startY: 30 });
+            doc.save(`SJ_Traders_Statement_${start}_to_${end}.pdf`);
+        };
+
+        // --- ADMIN EDIT LOGIC ---
 
         window.openAdminEdit = (docId, checkIn, checkOut, status) => {
             document.getElementById('edit-modal').classList.remove('hidden');
@@ -557,17 +823,14 @@
             document.getElementById('edit-status').value = status;
         };
 
-        window.closeModal = () => {
-            document.getElementById('edit-modal').classList.add('hidden');
-        };
+        window.closeModal = () => document.getElementById('edit-modal').classList.add('hidden');
 
         window.saveAdminEdit = async () => {
             const docId = document.getElementById('edit-doc-id').value;
-            const newIn = document.getElementById('edit-in').value; // Returns HH:MM in 24h
+            const newIn = document.getElementById('edit-in').value;
             const newOut = document.getElementById('edit-out').value;
             const newStatus = document.getElementById('edit-status').value;
 
-            // Simple calculation for new duration if both times provided
             let newDuration = "Edited";
             if (newIn && newOut) {
                 const d1 = new Date(`2000-01-01T${newIn}`);
@@ -578,55 +841,41 @@
                 newDuration = `${h}h ${m}m`;
             }
 
-            const updateData = {
-                status: newStatus,
-                adminEdited: true
-            };
+            const updateData = { status: newStatus, adminEdited: true };
             if(newIn) updateData.checkIn = newIn; 
-            if(newOut) {
-                updateData.checkOut = newOut;
-                updateData.duration = newDuration;
-            }
+            if(newOut) { updateData.checkOut = newOut; updateData.duration = newDuration; }
 
             await updateDoc(doc(db, "attendance", docId), updateData);
             closeModal();
             loadAttendanceData();
-            alert("Record Updated by Admin");
+            alert("Record Updated");
         };
 
-        // --- ANALYTICS (GRAPHS) ---
-        
         window.switchTab = (tabName) => {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             event.target.classList.add('active');
+            ['list', 'statement', 'analytics'].forEach(id => {
+                const el = document.getElementById(`tab-${id}`);
+                if(id === tabName) el.classList.remove('hidden');
+                else el.classList.add('hidden');
+            });
             
-            if (tabName === 'list') {
-                document.getElementById('tab-list').classList.remove('hidden');
-                document.getElementById('tab-analytics').classList.add('hidden');
-            } else {
-                document.getElementById('tab-list').classList.add('hidden');
-                document.getElementById('tab-analytics').classList.remove('hidden');
-                renderChart('day');
-            }
+            if (tabName === 'analytics') renderChart('day');
         };
 
+        // --- ANALYTICS ---
         window.renderChart = async (mode) => {
             const ctx = document.getElementById('workChart').getContext('2d');
-            
-            // Fetch ALL attendance records
             const snapshot = await getDocs(collection(db, "attendance"));
             const dataMap = {};
 
             snapshot.forEach(doc => {
                 const d = doc.data();
                 if (!d.duration || d.duration === "0h 0m") return;
-                
-                // Parse "4h 30m" to float 4.5
                 const parts = d.duration.split(' ');
                 const h = parseInt(parts[0].replace('h', '')) || 0;
                 const m = parseInt(parts[1].replace('m', '')) || 0;
                 const totalHours = h + (m/60);
-
                 if (!dataMap[d.name]) dataMap[d.name] = 0;
                 dataMap[d.name] += totalHours;
             });
@@ -641,21 +890,16 @@
                 data: {
                     labels: labels,
                     datasets: [{
-                        label: 'Total Hours Worked (All Time)',
+                        label: 'Total Hours Worked',
                         data: values,
                         backgroundColor: 'rgba(52, 152, 219, 0.6)',
                         borderColor: 'rgba(52, 152, 219, 1)',
                         borderWidth: 1
                     }]
                 },
-                options: {
-                    scales: {
-                        y: { beginAtZero: true }
-                    }
-                }
+                options: { scales: { y: { beginAtZero: true } } }
             });
         };
-
     </script>
 </body>
 </html>
