@@ -256,12 +256,33 @@
                     </div>
                 </div>
 
-                <!-- Tab 3: Graphs -->
+                <!-- Tab 3: Analytics -->
                 <div id="tab-analytics" class="hidden">
-                    <div style="text-align: center; margin-bottom: 15px;">
-                        <button class="nav-btn" style="background:#ddd; color:#333; border:none;" onclick="renderChart('day')">Daily Hours</button>
+                    <div class="toolbar">
+                        <div class="toolbar-group">
+                            <label style="margin-right:5px; font-weight:600;">View:</label>
+                            <select id="analytics-metric" style="padding:8px; border-radius:4px; border:1px solid #ccc; margin-right:10px;" onchange="renderChart()">
+                                <option value="present">Present Days</option>
+                                <option value="absent">Absent Days</option>
+                                <option value="leave">Leave Days</option>
+                                <option value="worktime">Work Hours</option>
+                            </select>
+                            
+                            <label style="margin-right:5px; font-weight:600;">From:</label>
+                            <input type="date" id="analytics-start" style="margin-right:10px;">
+                            <label style="margin-right:5px; font-weight:600;">To:</label>
+                            <input type="date" id="analytics-end" style="margin-right:10px;">
+                            
+                            <button onclick="renderChart()" class="btn-primary" style="padding: 8px 15px; border-radius: 4px;">Generate Graph</button>
+                        </div>
+                        <div class="toolbar-group">
+                            <button onclick="setAnalyticsRange('month')" class="btn btn-secondary" style="margin:0; font-size: 0.9em;">This Month</button>
+                            <button onclick="setAnalyticsRange('year')" class="btn btn-secondary" style="margin:0; margin-left:5px; font-size: 0.9em;">This Year</button>
+                        </div>
                     </div>
-                    <canvas id="workChart"></canvas>
+                    <div style="height: 400px; margin-top:20px;">
+                        <canvas id="workChart"></canvas>
+                    </div>
                 </div>
             </div>
         </div>
@@ -432,12 +453,15 @@
                     checkTodayStatus();
                     loadAttendanceData();
 
-                    // Set default dates for Statement
+                    // Set default dates
                     const today = formatDateLocal(new Date());
                     document.getElementById('stmt-end').value = today;
+                    document.getElementById('analytics-end').value = today;
+                    
                     const firstDay = new Date();
                     firstDay.setDate(1);
                     document.getElementById('stmt-start').value = formatDateLocal(firstDay);
+                    document.getElementById('analytics-start').value = formatDateLocal(firstDay);
                 }
             } else {
                 currentUser = null;
@@ -860,44 +884,143 @@
                 else el.classList.add('hidden');
             });
             
-            if (tabName === 'analytics') renderChart('day');
+            if (tabName === 'analytics') renderChart();
         };
 
         // --- ANALYTICS ---
-        window.renderChart = async (mode) => {
-            const ctx = document.getElementById('workChart').getContext('2d');
-            const snapshot = await getDocs(collection(db, "attendance"));
-            const dataMap = {};
 
-            snapshot.forEach(doc => {
-                const d = doc.data();
-                if (!d.duration || d.duration === "0h 0m") return;
-                const parts = d.duration.split(' ');
-                const h = parseInt(parts[0].replace('h', '')) || 0;
-                const m = parseInt(parts[1].replace('m', '')) || 0;
-                const totalHours = h + (m/60);
-                if (!dataMap[d.name]) dataMap[d.name] = 0;
-                dataMap[d.name] += totalHours;
+        window.setAnalyticsRange = (type) => {
+            const now = new Date();
+            const end = formatDateLocal(now);
+            let start = end;
+
+            if (type === 'month') {
+                const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+                start = formatDateLocal(firstDay);
+            } else if (type === 'year') {
+                const firstDay = new Date(now.getFullYear(), 0, 1);
+                start = formatDateLocal(firstDay);
+            }
+
+            document.getElementById('analytics-start').value = start;
+            document.getElementById('analytics-end').value = end;
+            renderChart();
+        };
+
+        // Helper to safely parse "Xh Ym" even if it says "Leave" or null
+        function parseDuration(durationStr) {
+            if (!durationStr || typeof durationStr !== 'string') return 0;
+            if (durationStr.includes('Leave') || durationStr.includes('On Leave')) return 0;
+            
+            const hMatch = durationStr.match(/(\d+)h/);
+            const mMatch = durationStr.match(/(\d+)m/);
+            
+            let h = hMatch ? parseInt(hMatch[1]) : 0;
+            let m = mMatch ? parseInt(mMatch[1]) : 0;
+            return h + (m / 60);
+        }
+
+        window.renderChart = async () => {
+            const ctx = document.getElementById('workChart').getContext('2d');
+            const metric = document.getElementById('analytics-metric').value; // present, absent, leave, worktime
+            const start = document.getElementById('analytics-start').value;
+            const end = document.getElementById('analytics-end').value;
+
+            if(!start || !end) return;
+
+            // 1. Get all users (to include everyone even if they have 0 attendance)
+            const usersSnap = await getDocs(collection(db, "users"));
+            const userDataMap = {};
+            usersSnap.forEach(u => {
+                userDataMap[u.id] = { name: u.data().name, count: 0 };
             });
 
-            const labels = Object.keys(dataMap);
-            const values = Object.values(dataMap);
+            // 2. Get attendance within range
+            const q = query(collection(db, "attendance"), where("date", ">=", start), where("date", "<=", end));
+            const attSnap = await getDocs(q);
+
+            // Calculate Total days in range for 'Absent' calculation
+            const d1 = new Date(start);
+            const d2 = new Date(end);
+            const totalDaysInRange = Math.floor((d2 - d1) / (1000 * 60 * 60 * 24)) + 1;
+
+            attSnap.forEach(doc => {
+                const data = doc.data();
+                if(!userDataMap[data.uid]) return; // Skip if user deleted
+
+                if(metric === 'worktime') {
+                    userDataMap[data.uid].count += parseDuration(data.duration);
+                } else if(metric === 'present') {
+                    if(data.status === 'Present' || data.status === 'On Duty') {
+                        userDataMap[data.uid].count++;
+                    }
+                } else if(metric === 'leave') {
+                    if(data.status === 'Leave') {
+                        userDataMap[data.uid].count++;
+                    }
+                } else if(metric === 'absent') {
+                    // For absent, we need to subtract present+leave from total days.
+                    // So we FIRST count present/leave here, then convert at the end.
+                     if(data.status === 'Present' || data.status === 'On Duty' || data.status === 'Leave') {
+                        userDataMap[data.uid].count++; 
+                        // Note: this 'count' is actually 'days NOT absent'. We will flip it later.
+                    }
+                }
+            });
+
+            const labels = [];
+            const dataValues = [];
+            const backgroundColors = [];
+            const borderColors = [];
+
+            let colorBase = 'rgba(52, 152, 219,'; // Blue for Worktime
+            if(metric === 'present') colorBase = 'rgba(39, 174, 96,'; // Green
+            if(metric === 'absent') colorBase = 'rgba(192, 57, 43,'; // Red
+            if(metric === 'leave') colorBase = 'rgba(243, 156, 18,'; // Orange
+
+            Object.values(userDataMap).forEach(u => {
+                labels.push(u.name);
+                
+                let val = u.count;
+                if(metric === 'absent') {
+                    // Absent = Total Days - (Present + Leave)
+                    // u.count currently holds (Present + Leave)
+                    val = Math.max(0, totalDaysInRange - u.count);
+                }
+                
+                if(metric === 'worktime') val = val.toFixed(1); // Round hours
+                
+                dataValues.push(val);
+                backgroundColors.push(colorBase + ' 0.6)');
+                borderColors.push(colorBase + ' 1)');
+            });
 
             if (chartInstance) chartInstance.destroy();
+
+            let labelText = 'Total Hours';
+            if(metric === 'present') labelText = 'Days Present';
+            if(metric === 'absent') labelText = 'Days Absent';
+            if(metric === 'leave') labelText = 'Days on Leave';
 
             chartInstance = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: labels,
                     datasets: [{
-                        label: 'Total Hours Worked',
-                        data: values,
-                        backgroundColor: 'rgba(52, 152, 219, 0.6)',
-                        borderColor: 'rgba(52, 152, 219, 1)',
+                        label: labelText,
+                        data: dataValues,
+                        backgroundColor: backgroundColors,
+                        borderColor: borderColors,
                         borderWidth: 1
                     }]
                 },
-                options: { scales: { y: { beginAtZero: true } } }
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
             });
         };
     </script>
